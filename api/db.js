@@ -21,6 +21,9 @@ if (!isProduction && !fs.existsSync(dbDir)) {
 // Use Turso cloud DB if URL is provided, otherwise fall back to local SQLite file
 let dbUrl = process.env.TURSO_DATABASE_URL || `file:${localDbPath}`;
 
+// Diagnostic: Check if this is a Turso Dashboard URL (common mistake)
+const isDashboardUrl = dbUrl.includes('turso.tech/organizations') || dbUrl.includes('turso.tech/databases');
+
 // Normalize Turso URLs (must use libsql:// protocol for the driver to be happy)
 if (dbUrl.startsWith('https://')) {
   dbUrl = dbUrl.replace('https://', 'libsql://');
@@ -29,6 +32,9 @@ if (dbUrl.startsWith('https://')) {
 const dbToken = process.env.TURSO_AUTH_TOKEN;
 
 console.log("Initializing database with URL:", dbUrl.startsWith('libsql') ? "Turso Cloud" : "Local File");
+if (isDashboardUrl) {
+  console.error("CRITICAL: It looks like you pasted the Turso Dashboard URL instead of the Connection URL!");
+}
 
 if (!process.env.TURSO_DATABASE_URL && process.env.NODE_ENV === 'production') {
   console.warn("WARNING: TURSO_DATABASE_URL is not set in production. Local SQLite file might not persist on Vercel.");

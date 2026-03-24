@@ -40,6 +40,7 @@ app.get('/api/health', async (req, res) => {
             status: 'ok',
             database: dbStatus.length > 0 ? 'connected' : 'error',
             turso: !!process.env.TURSO_DATABASE_URL,
+            is_dashboard_url: dbUrl.includes('turso.tech/organizations') || dbUrl.includes('turso.tech/databases'),
             turso_prefix: dbUrl ? dbUrl.substring(0, 10) : 'none',
             gemini: !!process.env.GEMINI_API_KEY,
             node_env: process.env.NODE_ENV

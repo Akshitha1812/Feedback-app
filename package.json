@@ -4,11 +4,11 @@
     "type": "module",
     "scripts": {
         "build": "cd client && npm install && npm run build",
-        "start": "node server/server.js"
+        "start": "node api/server.js"
     },
     "dependencies": {
         "@google/generative-ai": "^0.21.0",
-        "@libsql/client": "^0.6.2",
+        "@libsql/client": "^0.6.15",
         "cors": "^2.8.5",
         "dotenv": "^16.4.7",
         "express": "^4.21.2",
