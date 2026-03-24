@@ -41,14 +41,10 @@ async function initDb() {
     // Basic connectivity check
     await client.execute("SELECT 1");
 
-    await client.batch([
-      // Sessions Table
-      "CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, question TEXT NOT NULL, question_type TEXT DEFAULT 'open_ended', options TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)",
-      // Answers Table
-      "CREATE TABLE IF NOT EXISTS answers (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, text TEXT NOT NULL, student_name TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (session_id) REFERENCES sessions (id))",
-      // History Log Table
-      "CREATE TABLE IF NOT EXISTS history_log (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, markdown_synthesis TEXT NOT NULL, answer_count INTEGER NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (session_id) REFERENCES sessions (id))"
-    ], "write");
+    // Create tables one by one for maximum compatibility
+    await client.execute("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, question TEXT NOT NULL, question_type TEXT DEFAULT 'open_ended', options TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
+    await client.execute("CREATE TABLE IF NOT EXISTS answers (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, text TEXT NOT NULL, student_name TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (session_id) REFERENCES sessions (id))");
+    await client.execute("CREATE TABLE IF NOT EXISTS history_log (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, markdown_synthesis TEXT NOT NULL, answer_count INTEGER NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (session_id) REFERENCES sessions (id))");
 
     // Migrations (ignore errors if columns already exist)
     try { await client.execute("ALTER TABLE sessions ADD COLUMN question_type TEXT DEFAULT 'open_ended'"); } catch (e) { }
