@@ -146,8 +146,8 @@ app.post('/api/sessions', async (req, res) => {
         if (!baseUrl) {
             if (process.env.NODE_ENV === 'production') {
                 const host = req.get('host');
-                const protocol = req.protocol;
-                baseUrl = `${protocol}://${host}`;
+                // Always use https on Vercel/Production
+                baseUrl = `https://${host}`;
             } else {
                 let localIp = 'localhost';
                 try {

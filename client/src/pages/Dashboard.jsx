@@ -63,8 +63,11 @@ class SafeMarkdown extends React.Component {
 function NetworkQrCode({ sessionId, initialUrl }) {
   const [ips, setIps] = useState([]);
   const [selectedIp, setSelectedIp] = useState('');
+  const isProduction = typeof window !== 'undefined' && (window.location.hostname.includes('vercel.app') || !window.location.hostname.includes('localhost'));
 
   useEffect(() => {
+    if (isProduction) return; // Don't fetch local IPs in production
+
     const browserIp = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
 
     getNetworkIps()
@@ -89,22 +92,43 @@ function NetworkQrCode({ sessionId, initialUrl }) {
       .catch(() => {
         setSelectedIp(browserIp);
       });
-  }, []);
+  }, [isProduction]);
 
-  const qrUrl = (selectedIp === 'localhost' && initialUrl.includes('localhost'))
+  // In production, always use the initialUrl (which is the Vercel domain)
+  // In dev, use the selected local IP
+  const qrUrl = isProduction
     ? initialUrl
-    : `http://${selectedIp}:5173/submit/${sessionId}`;
+    : (selectedIp === 'localhost' ? initialUrl : `http://${selectedIp}:5173/submit/${sessionId}`);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
-      <img src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrUrl)}`} alt="QR Code" />
-      {ips.length > 0 && (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.8rem', width: '100%' }}>
+      <div className="glass-panel" style={{ padding: '1rem', background: '#fff', borderRadius: '1rem' }}>
+        <img
+          src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrUrl)}`}
+          alt="QR Code"
+          style={{ display: 'block', width: '200px', height: '200px' }}
+        />
+      </div>
+
+      <div style={{ textAlign: 'center' }}>
+        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.3rem', fontWeight: 'bold' }}>SCAN OR VISIT:</p>
+        <a
+          href={qrUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ fontSize: '0.85rem', color: 'var(--sjsu-blue)', textDecoration: 'underline', wordBreak: 'break-all' }}
+        >
+          {qrUrl.replace('https://', '')}
+        </a>
+      </div>
+
+      {!isProduction && ips.length > 0 && (
         <select
           className="input-field"
           style={{ width: 'auto', padding: '0.2rem 0.5rem', fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.8 }}
           value={selectedIp}
           onChange={(e) => setSelectedIp(e.target.value)}
-          title="Select the network IP for student access"
+          title="Select the network IP for student access (Local Dev Only)"
         >
           {ips.map(ip => (
             <option key={ip.ip} value={ip.ip}>{ip.name}: {ip.ip}</option>
