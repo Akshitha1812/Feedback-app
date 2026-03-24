@@ -4,8 +4,9 @@ import axios from 'axios';
 // For local testing on this network, we must use localhost directly.
 const getApiUrl = () => {
   if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
+  // Use relative path for production (Vercel) so it works on any domain
   if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
-    return `http://${window.location.hostname}:5001/api`;
+    return '/api';
   }
   return `http://localhost:5001/api`;
 };

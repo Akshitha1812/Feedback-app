@@ -1,94 +1,79 @@
-import sqlite3 from 'sqlite3';
+import { createClient } from '@libsql/client';
+import dotenv from 'dotenv';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 
+dotenv.config();
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const dbDir = join(__dirname, 'data');
-const dbPath = join(dbDir, 'feedback.db');
+const localDbPath = join(dbDir, 'feedback.db');
 
-// Ensure data directory exists
+// Ensure local data directory exists for local development
 if (!fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir, { recursive: true });
 }
 
-// Initialize SQLite database
-const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) {
-    console.error('Error opening database', err.message);
-  } else {
-    initDb();
-  }
+// Use Turso cloud DB if URL is provided, otherwise fall back to local SQLite file
+const dbUrl = process.env.TURSO_DATABASE_URL || `file:${localDbPath}`;
+const dbToken = process.env.TURSO_AUTH_TOKEN;
+
+const client = createClient({
+  url: dbUrl,
+  authToken: dbToken,
 });
 
-function initDb() {
-  db.serialize(() => {
-    // Sessions Table (represents a class/lecture question)
-    db.run(`
-      CREATE TABLE IF NOT EXISTS sessions (
-        id TEXT PRIMARY KEY,
-        question TEXT NOT NULL,
-        question_type TEXT DEFAULT 'open_ended',
-        options TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+// Initialize database schema
+async function initDb() {
+  try {
+    await client.batch([
+      // Sessions Table
+      "CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, question TEXT NOT NULL, question_type TEXT DEFAULT 'open_ended', options TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)",
+      // Answers Table
+      "CREATE TABLE IF NOT EXISTS answers (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, text TEXT NOT NULL, student_name TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (session_id) REFERENCES sessions (id))",
+      // History Log Table
+      "CREATE TABLE IF NOT EXISTS history_log (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, markdown_synthesis TEXT NOT NULL, answer_count INTEGER NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (session_id) REFERENCES sessions (id))"
+    ], "write");
 
-    // Migration for existing databases
-    db.run("ALTER TABLE sessions ADD COLUMN question_type TEXT DEFAULT 'open_ended'", (err) => { /* ignore if exists */ });
-    db.run("ALTER TABLE sessions ADD COLUMN options TEXT", (err) => { /* ignore if exists */ });
+    // Migrations (ignore errors if columns already exist)
+    try { await client.execute("ALTER TABLE sessions ADD COLUMN question_type TEXT DEFAULT 'open_ended'"); } catch (e) { }
+    try { await client.execute("ALTER TABLE sessions ADD COLUMN options TEXT"); } catch (e) { }
 
-    // Answers Table (stores raw student feedback)
-    db.run(`
-      CREATE TABLE IF NOT EXISTS answers (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_id TEXT NOT NULL,
-        text TEXT NOT NULL,
-        student_name TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (session_id) REFERENCES sessions (id)
-      )
-    `);
-
-    // History Log Table (stores Gemini analysis over time)
-    db.run(`
-      CREATE TABLE IF NOT EXISTS history_log (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_id TEXT NOT NULL,
-        markdown_synthesis TEXT NOT NULL,
-        answer_count INTEGER NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (session_id) REFERENCES sessions (id)
-      )
-    `);
-  });
+    console.log("Database initialized successfully.");
+  } catch (error) {
+    console.error("Error initializing database:", error);
+  }
 }
 
-// Helper query functions wrapped in Promises for async/await
-export function runQuery(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function (err) {
-      if (err) {
-        console.error('Error running sql ' + sql, err);
-        reject(err);
-      } else {
-        resolve({ id: this.lastID, changes: this.changes });
-      }
+// Initial call
+initDb();
+
+export async function runQuery(sql, params = []) {
+  try {
+    const result = await client.execute({ sql, args: params });
+    return { id: Number(result.lastInsertRowid), changes: result.rowsAffected };
+  } catch (error) {
+    console.error('Error running sql ' + sql, error);
+    throw error;
+  }
+}
+
+export async function getQuery(sql, params = []) {
+  try {
+    const result = await client.execute({ sql, args: params });
+    // Normalize result to match old sqlite3 format (array of objects)
+    return result.rows.map(row => {
+      const obj = {};
+      result.columns.forEach((col, idx) => {
+        obj[col] = row[idx];
+      });
+      return obj;
     });
-  });
+  } catch (error) {
+    console.error('Error running sql ' + sql, error);
+    throw error;
+  }
 }
 
-export function getQuery(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) {
-        console.error('Error running sql ' + sql, err);
-        reject(err);
-      } else {
-        resolve(rows);
-      }
-    });
-  });
-}
-
-export default db;
+export default client;

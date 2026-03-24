@@ -21,11 +21,13 @@ app.use(express.json({ limit: '50mb' })); // Allow large payloads
 const PORT = process.env.PORT || 5001;
 const genAI = initGemini(process.env.GEMINI_API_KEY);
 
-import fs from 'fs';
+// Debug Middleware (commented out for production as Vercel has read-only filesystem)
+/*
 app.use((req, res, next) => {
     fs.appendFileSync('server_debug.log', `[${new Date().toISOString()}] ${req.method} ${req.url}\n`);
     next();
 });
+*/
 
 // Default Route
 app.get('/api/status', (req, res) => {
@@ -104,17 +106,30 @@ app.post('/api/sessions', async (req, res) => {
         const optionsString = JSON.stringify(options);
         await runQuery('INSERT INTO sessions (id, question, question_type, options) VALUES (?, ?, ?, ?)', [sessionId, question, question_type, optionsString]);
 
-        // To allow mobile phones to scan the QR code, we need the local network IP
-        let localIp = 'localhost';
-        const interfaces = networkInterfaces();
-        for (const name of Object.keys(interfaces)) {
-            for (const iface of interfaces[name]) {
-                if (iface.family === 'IPv4' && !iface.internal) {
-                    localIp = iface.address;
-                }
+        // Base URL for QR codes
+        let baseUrl = process.env.FRONTEND_URL;
+
+        if (!baseUrl) {
+            if (process.env.NODE_ENV === 'production') {
+                const host = req.get('host');
+                const protocol = req.protocol;
+                baseUrl = `${protocol}://${host}`;
+            } else {
+                let localIp = 'localhost';
+                try {
+                    const interfaces = networkInterfaces();
+                    for (const name of Object.keys(interfaces)) {
+                        for (const iface of interfaces[name]) {
+                            if (iface.family === 'IPv4' && !iface.internal) {
+                                localIp = iface.address;
+                            }
+                        }
+                    }
+                } catch (e) { }
+                baseUrl = `http://${localIp}:5173`;
             }
         }
-        const baseUrl = process.env.FRONTEND_URL || `http://${localIp}:5173`;
+
         const submitUrl = `${baseUrl}/submit/${sessionId}`;
 
         const qrCodeDataUrl = await QRCode.toDataURL(submitUrl);
@@ -255,6 +270,10 @@ app.use((err, req, res, next) => {
     res.status(500).json({ error: "Internal Server Error", message: err.message });
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server is running on port ${PORT}`);
-});
+export default app;
+
+if (process.env.NODE_ENV !== 'production') {
+    app.listen(PORT, '0.0.0.0', () => {
+        console.log(`Server is running on port ${PORT}`);
+    });
+}
