@@ -33,6 +33,8 @@ const client = createClient({
   authToken: dbToken,
 });
 
+let dbReadyPromise = null;
+
 // Initialize database schema
 async function initDb() {
   try {
@@ -55,20 +57,25 @@ async function initDb() {
     console.log("Database initialized successfully.");
   } catch (error) {
     console.error("CRITICAL: Database initialization failed:", error.message);
-    // On Vercel, we want to know the cause
-    if (error.message.includes('auth')) {
-      console.error("Tip: Check your TURSO_AUTH_TOKEN.");
-    }
+    throw error;
   }
 }
 
-// Initial call
-initDb();
+// Ensure initDb is only called once and we can wait for it
+function getDbReady() {
+  if (!dbReadyPromise) {
+    dbReadyPromise = initDb();
+  }
+  return dbReadyPromise;
+}
 
 export async function runQuery(sql, params = []) {
   try {
+    await getDbReady();
     const result = await client.execute({ sql, args: params });
-    return { id: Number(result.lastInsertRowid), changes: result.rowsAffected };
+    // Use string conversion for BigInt safety
+    const lastId = result.lastInsertRowid ? result.lastInsertRowid.toString() : null;
+    return { id: lastId, changes: result.rowsAffected };
   } catch (error) {
     console.error('Database runQuery Error:', error.message, '| SQL:', sql);
     throw error;
@@ -77,6 +84,7 @@ export async function runQuery(sql, params = []) {
 
 export async function getQuery(sql, params = []) {
   try {
+    await getDbReady();
     console.log(`Executing getQuery: ${sql.substring(0, 50)}...`);
     const result = await client.execute({ sql, args: params });
     // Normalize result to match old sqlite3 format (array of objects)
