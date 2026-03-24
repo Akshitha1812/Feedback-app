@@ -31,6 +31,27 @@ app.use((req, res, next) => {
 });
 */
 
+// Health & Debug Route
+app.get('/api/health', async (req, res) => {
+    try {
+        const dbStatus = await getQuery("SELECT 1 as connected");
+        res.json({
+            status: 'ok',
+            database: dbStatus.length > 0 ? 'connected' : 'error',
+            turso: !!process.env.TURSO_DATABASE_URL,
+            gemini: !!process.env.GEMINI_API_KEY,
+            node_env: process.env.NODE_ENV
+        });
+    } catch (e) {
+        res.status(500).json({
+            status: 'error',
+            message: 'Database connection failed',
+            details: e.message,
+            turso_set: !!process.env.TURSO_DATABASE_URL
+        });
+    }
+});
+
 // Default Route
 app.get('/api/status', (req, res) => {
     res.json({ status: 'Server is running', ai_initialized: !!process.env.GEMINI_API_KEY });
@@ -78,22 +99,30 @@ app.post('/api/ai/generate', async (req, res) => {
 // PDF Content Extraction
 app.post('/api/upload', upload.single('file'), async (req, res) => {
     try {
-        console.log("PDF Upload received:", req.file ? req.file.originalname : "No file");
         if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
-        console.log("Parsing PDF buffer size:", req.file.buffer.length);
+        console.log("Parsing PDF:", req.file.originalname, "Size:", req.file.buffer.length);
 
-        // Standard pdf-parse usage
-        const data = await pdfParse(req.file.buffer);
-
-        console.log('PDF Extracted text length:', data.text.length);
-        res.json({ text: data.text });
+        try {
+            const data = await pdfParse(req.file.buffer);
+            if (!data || !data.text) {
+                throw new Error("PDF parsing returned empty or invalid data");
+            }
+            res.json({ text: data.text });
+        } catch (parseError) {
+            console.error('Inner PDF Parse Error:', parseError);
+            res.status(500).json({
+                error: 'Internal PDF Parser Error',
+                details: parseError.message,
+                tip: 'The PDF might be encrypted or using an unsupported format.'
+            });
+        }
     } catch (error) {
-        console.error('PDF Parse Error Details:', error);
+        console.error('Outer Upload Error:', error);
         res.status(500).json({
-            error: 'Failed to parse PDF',
+            error: 'Failed to process upload',
             details: error.message,
-            stack: error.stack
+            stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined
         });
     }
 });

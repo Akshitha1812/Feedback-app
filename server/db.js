@@ -19,6 +19,12 @@ if (!fs.existsSync(dbDir)) {
 const dbUrl = process.env.TURSO_DATABASE_URL || `file:${localDbPath}`;
 const dbToken = process.env.TURSO_AUTH_TOKEN;
 
+console.log("Initializing database with URL:", dbUrl.startsWith('libsql') ? "Turso Cloud" : "Local File");
+
+if (!process.env.TURSO_DATABASE_URL && process.env.NODE_ENV === 'production') {
+  console.warn("WARNING: TURSO_DATABASE_URL is not set in production. Local SQLite file might not persist on Vercel.");
+}
+
 const client = createClient({
   url: dbUrl,
   authToken: dbToken,
@@ -27,6 +33,9 @@ const client = createClient({
 // Initialize database schema
 async function initDb() {
   try {
+    // Basic connectivity check
+    await client.execute("SELECT 1");
+
     await client.batch([
       // Sessions Table
       "CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, question TEXT NOT NULL, question_type TEXT DEFAULT 'open_ended', options TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)",
@@ -42,7 +51,11 @@ async function initDb() {
 
     console.log("Database initialized successfully.");
   } catch (error) {
-    console.error("Error initializing database:", error);
+    console.error("CRITICAL: Database initialization failed:", error.message);
+    // On Vercel, we want to know the cause
+    if (error.message.includes('auth')) {
+      console.error("Tip: Check your TURSO_AUTH_TOKEN.");
+    }
   }
 }
 
@@ -54,13 +67,14 @@ export async function runQuery(sql, params = []) {
     const result = await client.execute({ sql, args: params });
     return { id: Number(result.lastInsertRowid), changes: result.rowsAffected };
   } catch (error) {
-    console.error('Error running sql ' + sql, error);
+    console.error('Database runQuery Error:', error.message, '| SQL:', sql);
     throw error;
   }
 }
 
 export async function getQuery(sql, params = []) {
   try {
+    console.log(`Executing getQuery: ${sql.substring(0, 50)}...`);
     const result = await client.execute({ sql, args: params });
     // Normalize result to match old sqlite3 format (array of objects)
     return result.rows.map(row => {
@@ -71,7 +85,7 @@ export async function getQuery(sql, params = []) {
       return obj;
     });
   } catch (error) {
-    console.error('Error running sql ' + sql, error);
+    console.error('Database getQuery Error:', error.message, '| SQL:', sql);
     throw error;
   }
 }
