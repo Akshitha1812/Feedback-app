@@ -5,7 +5,9 @@ import { v4 as uuidv4 } from 'uuid';
 import QRCode from 'qrcode';
 import { networkInterfaces } from 'os';
 import multer from 'multer';
-import { PDFParse } from 'pdf-parse';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const pdfParse = require('pdf-parse');
 
 import { runQuery, getQuery } from './db.js';
 import { initGemini, runSynthesisEngine, generateQuizFromContext } from './gemini.js';
@@ -80,9 +82,9 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
         if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
         console.log("Parsing PDF buffer size:", req.file.buffer.length);
-        // Use the new PDFParse class from v2.4.x
-        const parser = new PDFParse({ data: req.file.buffer });
-        const data = await parser.getText();
+
+        // Standard pdf-parse usage
+        const data = await pdfParse(req.file.buffer);
 
         console.log('PDF Extracted text length:', data.text.length);
         res.json({ text: data.text });
