@@ -35,10 +35,12 @@ app.use((req, res, next) => {
 app.get('/api/health', async (req, res) => {
     try {
         const dbStatus = await getQuery("SELECT 1 as connected");
+        const dbUrl = process.env.TURSO_DATABASE_URL || '';
         res.json({
             status: 'ok',
             database: dbStatus.length > 0 ? 'connected' : 'error',
             turso: !!process.env.TURSO_DATABASE_URL,
+            turso_prefix: dbUrl ? dbUrl.substring(0, 10) : 'none',
             gemini: !!process.env.GEMINI_API_KEY,
             node_env: process.env.NODE_ENV
         });
@@ -79,8 +81,8 @@ app.get('/api/sessions', async (req, res) => {
         const sessions = await getQuery('SELECT id, question, question_type, created_at FROM sessions ORDER BY created_at DESC');
         res.json(sessions);
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "Failed to fetch sessions" });
+        console.error("GET /api/sessions error:", error);
+        res.status(500).json({ error: "Failed to fetch sessions", details: error.message });
     }
 });
 // AI Assistant Quiz Generation
@@ -167,8 +169,8 @@ app.post('/api/sessions', async (req, res) => {
 
         res.json({ sessionId, question, question_type, options, qrCodeUrl: qrCodeDataUrl, submitUrl });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "Failed to create session" });
+        console.error("POST /api/sessions error:", error);
+        res.status(500).json({ error: "Failed to create session", details: error.message, stack: error.stack });
     }
 });
 
@@ -185,8 +187,8 @@ app.get('/api/sessions/:sessionId', async (req, res) => {
         }
         res.json(session);
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "Failed to fetch session metadata" });
+        console.error("GET /api/sessions/:id error:", error);
+        res.status(500).json({ error: "Failed to fetch session metadata", details: error.message });
     }
 });
 
@@ -199,8 +201,7 @@ app.delete('/api/sessions/:sessionId', async (req, res) => {
         await runQuery('DELETE FROM sessions WHERE id = ?', [sessionId]);
         res.json({ success: true });
     } catch (error) {
-        fs.appendFileSync('server_debug.log', `[ERROR] /delete: ${error.stack || error}\n`);
-        console.error(error);
+        console.error("DELETE /api/sessions/:id error:", error);
         res.status(500).json({ error: "Failed to delete session", details: error.message });
     }
 });
@@ -216,8 +217,8 @@ app.post('/api/sessions/:sessionId/answers', async (req, res) => {
         await runQuery('INSERT INTO answers (session_id, text, student_name) VALUES (?, ?, ?)', [sessionId, text, studentName || null]);
         res.json({ success: true });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "Failed to submit answer" });
+        console.error("POST /answers error:", error);
+        res.status(500).json({ error: "Failed to submit answer", details: error.message });
     }
 });
 
@@ -277,8 +278,7 @@ app.post('/api/sessions/:sessionId/analyze', async (req, res) => {
 
         res.json({ markdown_synthesis: synthesis, answer_count: answers.length });
     } catch (error) {
-        fs.appendFileSync('server_debug.log', `[ERROR] /analyze: ${error.stack || error}\n`);
-        console.error(error);
+        console.error("POST /analyze error:", error);
         res.status(500).json({ error: "Failed to run analysis", details: error.message });
     }
 });
