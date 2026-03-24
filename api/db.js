@@ -19,7 +19,13 @@ if (!isProduction && !fs.existsSync(dbDir)) {
 }
 
 // Use Turso cloud DB if URL is provided, otherwise fall back to local SQLite file
-const dbUrl = process.env.TURSO_DATABASE_URL || `file:${localDbPath}`;
+let dbUrl = process.env.TURSO_DATABASE_URL || `file:${localDbPath}`;
+
+// Normalize Turso URLs (must use libsql:// protocol for the driver to be happy)
+if (dbUrl.startsWith('https://')) {
+  dbUrl = dbUrl.replace('https://', 'libsql://');
+}
+
 const dbToken = process.env.TURSO_AUTH_TOKEN;
 
 console.log("Initializing database with URL:", dbUrl.startsWith('libsql') ? "Turso Cloud" : "Local File");
