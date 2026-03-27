@@ -1,12 +1,22 @@
-import { LayoutDashboard } from 'lucide-react';
-import { Link, useLocation } from 'react-router-dom';
+import { LayoutDashboard, LogOut } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
-export default function Header() {
+export default function Header({ isAuthenticated, setAuth }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const isPresentation = location.pathname.includes('/presentation');
 
   // Hide header in presentation mode for max screen real estate
   if (isPresentation) return null;
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    setAuth(false);
+    navigate('/login');
+  };
+
+  const user = isAuthenticated ? JSON.parse(localStorage.getItem('user')) : null;
 
   return (
     <header style={{
@@ -39,7 +49,15 @@ export default function Header() {
         </h1>
       </Link>
 
-      <div style={{ display: 'flex', gap: '1rem' }}>
+      <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+        {isAuthenticated && user && (
+          <div style={{ fontSize: '0.9rem', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <span>Welcome, {user.username}</span>
+            <button className="btn btn-secondary" style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem' }} onClick={handleLogout}>
+              <LogOut size={16} style={{ marginRight: '0.3rem' }} /> Logout
+            </button>
+          </div>
+        )}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', color: 'var(--text-muted)' }}>
           <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--success)', boxShadow: '0 0 8px var(--success)' }}></div>
           System Ready

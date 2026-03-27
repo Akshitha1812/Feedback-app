@@ -9,6 +9,9 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const pdfParse = require('pdf-parse');
 
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+
 import { runQuery, getQuery } from './db.js';
 import { initGemini, runSynthesisEngine, generateQuizFromContext } from './gemini.js';
 
@@ -22,6 +25,87 @@ app.use(express.json({ limit: '50mb' })); // Allow large payloads
 
 const PORT = process.env.PORT || 5001;
 const genAI = initGemini(process.env.GEMINI_API_KEY);
+
+const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key_123';
+
+export const requireAuth = (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: "No token provided" });
+    const token = authHeader.split(' ')[1];
+    jwt.verify(token, JWT_SECRET, (err, decoded) => {
+        if (err) return res.status(403).json({ error: "Failed to authenticate token" });
+        req.userId = decoded.id;
+        next();
+    });
+};
+
+// Auth Routes
+app.post('/api/auth/register', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        if (!username || !password) return res.status(400).json({ error: "Username and password required" });
+        const existing = await getQuery("SELECT id FROM users WHERE username = ?", [username]);
+        if (existing.length > 0) return res.status(400).json({ error: "Username taken" });
+
+        const hash = await bcrypt.hash(password, 10);
+        const userId = uuidv4();
+        await runQuery("INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)", [userId, username, hash]);
+
+        const token = jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: '7d' });
+        res.json({ token, user: { id: userId, username } });
+    } catch (e) {
+        res.status(500).json({ error: "Failed to register", details: e.message });
+    }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        const users = await getQuery("SELECT * FROM users WHERE username = ?", [username]);
+        if (users.length === 0) return res.status(401).json({ error: "Invalid credentials" });
+
+        const user = users[0];
+        const match = await bcrypt.compare(password, user.password_hash);
+        if (!match) return res.status(401).json({ error: "Invalid credentials" });
+
+        const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '7d' });
+        res.json({ token, user: { id: user.id, username: user.username } });
+    } catch (e) {
+        res.status(500).json({ error: "Failed to login", details: e.message });
+    }
+});
+
+app.get('/api/auth/me', requireAuth, async (req, res) => {
+    try {
+        const users = await getQuery("SELECT id, username FROM users WHERE id = ?", [req.userId]);
+        if (users.length === 0) return res.status(404).json({ error: "User not found" });
+        res.json({ user: users[0] });
+    } catch (e) {
+        res.status(500).json({ error: "Failed to get user", details: e.message });
+    }
+});
+
+// Course Routes
+app.get('/api/courses', requireAuth, async (req, res) => {
+    try {
+        const courses = await getQuery("SELECT id, name, created_at FROM courses WHERE user_id = ? ORDER BY created_at DESC", [req.userId]);
+        res.json(courses);
+    } catch (e) {
+        res.status(500).json({ error: "Failed to fetch courses" });
+    }
+});
+
+app.post('/api/courses', requireAuth, async (req, res) => {
+    try {
+        const { name } = req.body;
+        if (!name) return res.status(400).json({ error: "Course name required" });
+        const courseId = uuidv4();
+        await runQuery("INSERT INTO courses (id, user_id, name) VALUES (?, ?, ?)", [courseId, req.userId, name]);
+        res.json({ id: courseId, name });
+    } catch (e) {
+        res.status(500).json({ error: "Failed to create course" });
+    }
+});
 
 // Debug Middleware (commented out for production as Vercel has read-only filesystem)
 /*
@@ -77,9 +161,24 @@ app.get('/api/network', (req, res) => {
 });
 
 // List all sessions/questions
-app.get('/api/sessions', async (req, res) => {
+app.get('/api/sessions', requireAuth, async (req, res) => {
     try {
-        const sessions = await getQuery('SELECT id, question, question_type, created_at FROM sessions ORDER BY created_at DESC');
+        const { courseId } = req.query;
+        let query = `
+            SELECT s.id, s.question, s.question_type, s.created_at, s.course_id 
+            FROM sessions s
+            JOIN courses c ON s.course_id = c.id
+            WHERE c.user_id = ?
+        `;
+        const params = [req.userId];
+
+        if (courseId) {
+            query += " AND s.course_id = ?";
+            params.push(courseId);
+        }
+
+        query += " ORDER BY s.created_at DESC";
+        const sessions = await getQuery(query, params);
         res.json(sessions);
     } catch (error) {
         console.error("GET /api/sessions error:", error);
@@ -131,14 +230,18 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
 });
 
 // Create a new session (Question)
-app.post('/api/sessions', async (req, res) => {
+app.post('/api/sessions', requireAuth, async (req, res) => {
     try {
-        const { question, question_type = 'open_ended', options = [] } = req.body;
+        const { question, question_type = 'open_ended', options = [], course_id } = req.body;
         if (!question) return res.status(400).json({ error: "Question is required" });
+        if (!course_id) return res.status(400).json({ error: "course_id is required" });
+
+        const courses = await getQuery("SELECT id FROM courses WHERE id = ? AND user_id = ?", [course_id, req.userId]);
+        if (courses.length === 0) return res.status(403).json({ error: "Invalid course_id or unauthorized" });
 
         const sessionId = uuidv4();
         const optionsString = JSON.stringify(options);
-        await runQuery('INSERT INTO sessions (id, question, question_type, options) VALUES (?, ?, ?, ?)', [sessionId, question, question_type, optionsString]);
+        await runQuery('INSERT INTO sessions (id, question, question_type, options, course_id) VALUES (?, ?, ?, ?, ?)', [sessionId, question, question_type, optionsString, course_id]);
 
         // Base URL for QR codes
         let baseUrl = process.env.FRONTEND_URL;

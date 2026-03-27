@@ -15,9 +15,26 @@ const api = axios.create({
   baseURL: getApiUrl(),
 });
 
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// Auth
+export const login = (username, password) => api.post('/auth/login', { username, password });
+export const register = (username, password) => api.post('/auth/register', { username, password });
+export const getMe = () => api.get('/auth/me');
+
+// Courses
+export const getCourses = () => api.get('/courses');
+export const createCourse = (name) => api.post('/courses', { name });
+
 // Session Management
-export const createSession = (question, question_type, options) => api.post('/sessions', { question, question_type, options });
-export const getAllSessions = () => api.get('/sessions');
+export const createSession = (question, question_type, options, course_id) => api.post('/sessions', { question, question_type, options, course_id });
+export const getAllSessions = (courseId) => api.get('/sessions', { params: { courseId } });
 export const getSession = (sessionId) => api.get(`/sessions/${sessionId}`);
 export const getSessionHistory = (sessionId) => api.get(`/sessions/${sessionId}/history`);
 export const deleteSession = (sessionId) => api.delete(`/sessions/${sessionId}`);

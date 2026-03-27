@@ -9,7 +9,9 @@ import {
   uploadFile,
   generateAiQuiz,
   submitBulkAnswers,
-  getNetworkIps
+  getNetworkIps,
+  getCourses,
+  createCourse
 } from '../api';
 import {
   Play,
@@ -170,6 +172,12 @@ export default function Dashboard() {
   const [aiFocus, setAiFocus] = useState('concept_understanding');
   const [bulkInput, setBulkInput] = useState('');
 
+  // Course state
+  const [courses, setCourses] = useState([]);
+  const [selectedCourseId, setSelectedCourseId] = useState('');
+  const [newCourseName, setNewCourseName] = useState('');
+  const [isCreatingCourse, setIsCreatingCourse] = useState(false);
+
   // Sidebar config
   const [sidebarTab, setSidebarTab] = useState('design'); // 'design' or 'analysis'
   const [includeNames, setIncludeNames] = useState(false);
@@ -180,8 +188,24 @@ export default function Dashboard() {
   const [currentSynthesis, setCurrentSynthesis] = useState(null);
 
   useEffect(() => {
-    fetchSessions();
+    fetchCourses();
   }, []);
+
+  useEffect(() => {
+    fetchSessions();
+  }, [selectedCourseId]);
+
+  const fetchCourses = async () => {
+    try {
+      const res = await getCourses();
+      setCourses(res.data);
+      if (res.data.length > 0 && !selectedCourseId) {
+        setSelectedCourseId(res.data[0].id);
+      }
+    } catch (error) {
+      console.error("Failed to load courses");
+    }
+  };
 
   useEffect(() => {
     let interval;
@@ -207,7 +231,7 @@ export default function Dashboard() {
 
   const fetchSessions = async () => {
     try {
-      const res = await getAllSessions();
+      const res = await getAllSessions(selectedCourseId);
       setSessions(res.data);
     } catch (error) {
       console.error("Failed to load sessions");
@@ -217,11 +241,12 @@ export default function Dashboard() {
   const handleStartSession = async (e) => {
     if (e) e.preventDefault();
     if (!question.trim()) return;
+    if (!selectedCourseId) { alert("Please select or create a course first."); return; }
     try {
       const optionsArray = (questionType === 'multiple_choice' || questionType === 'true_false')
         ? optionsText.split('\n').map(o => o.trim()).filter(o => o)
         : [];
-      const res = await createSession(question, questionType, optionsArray);
+      const res = await createSession(question, questionType, optionsArray, selectedCourseId);
       setCurrentSession(res.data);
       fetchSessions();
       setHistoryLog([]);
@@ -235,10 +260,11 @@ export default function Dashboard() {
 
   const handleStartMultiSession = async () => {
     if (generatedQuestions.length === 0) return;
+    if (!selectedCourseId) { alert("Please select or create a course first."); return; }
     try {
       const title = `AI Generated Quiz (${generatedQuestions.length} Questions)`;
       // passing generatedQuestions directly acts as the options payload
-      const res = await createSession(title, "multi_question", generatedQuestions);
+      const res = await createSession(title, "multi_question", generatedQuestions, selectedCourseId);
       setCurrentSession(res.data);
       fetchSessions();
       setHistoryLog([]);
@@ -248,6 +274,17 @@ export default function Dashboard() {
       console.error(error);
       alert('Failed to start multi-question session.');
     }
+  };
+
+  const handleCreateCourse = async () => {
+    if (!newCourseName.trim()) return;
+    try {
+      const res = await createCourse(newCourseName);
+      setCourses([{ id: res.data.id, name: res.data.name }, ...courses]);
+      setSelectedCourseId(res.data.id);
+      setNewCourseName('');
+      setIsCreatingCourse(false);
+    } catch (e) { alert("Failed to create course"); }
   };
 
   const handleFileUpload = async (e) => {
@@ -459,6 +496,27 @@ export default function Dashboard() {
           </div>
           <div className={`sidebar-tab ${sidebarTab === 'analysis' ? 'active' : ''}`} onClick={() => setSidebarTab('analysis')}>
             Live Analysis
+          </div>
+        </div>
+
+        <div style={{ padding: '1rem', borderBottom: '1px solid var(--border-color)', background: 'rgba(0,0,0,0.02)' }}>
+          <label style={{ fontWeight: 'bold', fontSize: '0.85rem', display: 'block', marginBottom: '0.5rem' }}>Select Course</label>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            {isCreatingCourse ? (
+              <>
+                <input type="text" className="input-field" placeholder="Course Name..." value={newCourseName} onChange={e => setNewCourseName(e.target.value)} style={{ flex: 1, padding: '0.4rem', fontSize: '0.85rem' }} />
+                <button className="btn btn-primary" style={{ padding: '0.4rem 0.8rem' }} onClick={handleCreateCourse}>Save</button>
+                <button className="btn btn-secondary" style={{ padding: '0.4rem 0.8rem' }} onClick={() => setIsCreatingCourse(false)}>X</button>
+              </>
+            ) : (
+              <>
+                <select className="input-field" style={{ flex: 1, padding: '0.4rem', fontSize: '0.85rem' }} value={selectedCourseId} onChange={e => setSelectedCourseId(e.target.value)}>
+                  <option value="">All My Courses</option>
+                  {courses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+                <button className="btn btn-secondary" style={{ padding: '0.4rem 0.8rem' }} onClick={() => setIsCreatingCourse(true)} title="Add Course"><Plus size={16} /></button>
+              </>
+            )}
           </div>
         </div>
 
